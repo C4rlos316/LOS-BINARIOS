@@ -150,6 +150,131 @@ Genera la nueva REGLA:"""
     print("\n[Sistema: ✓ Nueva regla aprendida y guardada. El bot mejorará sus respuestas.]")
 
 
+def calculate_metrics(chat_history):
+    """
+    Calcula métricas de la conversación para mostrar al final.
+    Retorna un diccionario con las métricas calculadas.
+    """
+    # Extraer solo mensajes de usuario y bot (sin SystemMessage)
+    user_messages = []
+    bot_messages = []
+    
+    for msg in chat_history:
+        if isinstance(msg, HumanMessage):
+            user_messages.append(msg.content)
+        elif isinstance(msg, AIMessage):
+            bot_messages.append(msg.content)
+    
+    # MÉTRICA 1: Tasa de Resolución (basada en especificidad de respuestas)
+    keywords_especificos = [
+        '3 meses', '3,000 km', '7 días', '$', 'MXN', 'pesos',
+        '12.9%', '24.9%', '10%', 'enganche', 'tasa',
+        'Versa', 'Jetta', 'Corolla', 'Civic', 'Mazda',
+        '240 puntos', 'inspección', 'Hub', 'Kavak',
+        '800-KAVAK', 'SPEI', '24-48 horas', '5 minutos',
+        'garantía', 'financiamiento', 'precio'
+    ]
+    
+    resolved_count = 0
+    for response in bot_messages:
+        keyword_count = sum(1 for keyword in keywords_especificos if keyword.lower() in response.lower())
+        if keyword_count >= 2:
+            resolved_count += 1
+    
+    resolution_rate = (resolved_count / len(bot_messages) * 100) if bot_messages else 0
+    
+    # MÉTRICA 2: Precisión y Completitud (longitud promedio y densidad de información)
+    avg_response_length = sum(len(msg) for msg in bot_messages) / len(bot_messages) if bot_messages else 0
+    
+    total_keywords = 0
+    for response in bot_messages:
+        total_keywords += sum(1 for keyword in keywords_especificos if keyword.lower() in response.lower())
+    
+    keyword_density = (total_keywords / len(bot_messages)) if bot_messages else 0
+    
+    # Clasificar completitud
+    if keyword_density >= 5:
+        completitud = "EXCELENTE"
+    elif keyword_density >= 3:
+        completitud = "BUENA"
+    elif keyword_density >= 1:
+        completitud = "REGULAR"
+    else:
+        completitud = "BAJA"
+    
+    return {
+        'total_interactions': len(user_messages),
+        'resolved_count': resolved_count,
+        'resolution_rate': resolution_rate,
+        'avg_response_length': avg_response_length,
+        'keyword_density': keyword_density,
+        'completitud': completitud,
+        'user_messages': user_messages,
+        'bot_messages': bot_messages
+    }
+
+
+def display_metrics(metrics):
+    """
+    Muestra las métricas de forma visual al final de la conversación.
+    """
+    print("\n" + "="*70)
+    print("📊 REPORTE DE MÉTRICAS DE LA CONVERSACIÓN")
+    print("="*70)
+    
+    # MÉTRICA 1: COMPARACIÓN PAREADA (La Tabla)
+    print("\n1️⃣  COMPARACIÓN PAREADA - Historial de Interacciones")
+    print("─"*70)
+    
+    for i in range(metrics['total_interactions']):
+        print(f"\n[Interacción {i+1}]")
+        print(f"👤 Usuario: {metrics['user_messages'][i][:100]}{'...' if len(metrics['user_messages'][i]) > 100 else ''}")
+        print(f"🤖 Kavak:   {metrics['bot_messages'][i][:100]}{'...' if len(metrics['bot_messages'][i]) > 100 else ''}")
+    
+    # MÉTRICA 2: TASA DE RESOLUCIÓN (El Puntaje)
+    print("\n" + "─"*70)
+    print("2️⃣  TASA DE RESOLUCIÓN DE PROBLEMAS")
+    print("─"*70)
+    print(f"\n   Respuestas con datos específicos: {metrics['resolved_count']}/{metrics['total_interactions']}")
+    print(f"   Tasa de Resolución: {metrics['resolution_rate']:.1f}%")
+    
+    # Barra visual
+    bar_length = 30
+    filled = int((metrics['resolution_rate'] / 100) * bar_length)
+    bar = "█" * filled + "░" * (bar_length - filled)
+    print(f"   [{bar}] {metrics['resolution_rate']:.1f}%")
+    
+    if metrics['resolution_rate'] >= 80:
+        print("   ✅ EXCELENTE - El bot proporcionó información específica")
+    elif metrics['resolution_rate'] >= 60:
+        print("   ✓ BUENO - La mayoría de respuestas fueron específicas")
+    elif metrics['resolution_rate'] >= 40:
+        print("   ⚠️  REGULAR - Algunas respuestas fueron vagas")
+    else:
+        print("   ❌ BAJO - El bot necesita más datos específicos")
+    
+    # MÉTRICA 3: PRECISIÓN Y COMPLETITUD (La Explicación)
+    print("\n" + "─"*70)
+    print("3️⃣  PRECISIÓN Y COMPLETITUD")
+    print("─"*70)
+    print(f"\n   Longitud promedio de respuestas: {metrics['avg_response_length']:.0f} caracteres")
+    print(f"   Densidad de información: {metrics['keyword_density']:.1f} datos específicos por respuesta")
+    print(f"   Nivel de Completitud: {metrics['completitud']}")
+    
+    if metrics['completitud'] == "EXCELENTE":
+        print("   ✅ Las respuestas incluyen múltiples datos concretos (precios, plazos, etc.)")
+    elif metrics['completitud'] == "BUENA":
+        print("   ✓ Las respuestas incluyen datos específicos relevantes")
+    elif metrics['completitud'] == "REGULAR":
+        print("   ⚠️  Las respuestas podrían ser más específicas")
+    else:
+        print("   ❌ Las respuestas carecen de datos concretos")
+    
+    print("\n" + "="*70)
+    print("Fin del Reporte de Métricas")
+    print("="*70 + "\n")
+
+
 def build_system_prompt(user_id):
     """
     Construye el prompt del sistema combinando:
@@ -347,6 +472,15 @@ def main():
         
         # Verificar comando de salida
         if user_input.lower() == 'salir':
+            # Calcular y mostrar métricas antes de salir
+            if len(chat_history) > 1:  # Si hubo al menos una interacción
+                print("\n" + "="*70)
+                print("Generando reporte de métricas de tu conversación...")
+                print("="*70)
+                
+                metrics = calculate_metrics(chat_history)
+                display_metrics(metrics)
+            
             print("\n👋 ¡Gracias por usar el asistente de Kavak! Hasta pronto.")
             break
         
