@@ -23,11 +23,43 @@ def main():
     print("=" * 60)
     print("\nEscribe 'salir' en cualquier momento para terminar la conversación.\n")
     
-    # Solicitar user_id
-    user_id = input("Por favor, ingresa tu ID de usuario: ").strip()
+    # Sistema de identificación de usuario
+    print("=" * 60)
+    print("IDENTIFICACIÓN DE USUARIO")
+    print("=" * 60)
+    print("\n1. ¿Eres un usuario nuevo o existente?")
+    print("   [1] Usuario nuevo (crear ID)")
+    print("   [2] Usuario existente (usar ID anterior)")
     
-    if not user_id:
-        print("❌ Error: Debes ingresar un ID de usuario válido.")
+    opcion = input("\nSelecciona una opción (1 o 2): ").strip()
+    
+    if opcion == "1":
+        # Usuario nuevo
+        nombre = input("\nIngresa tu nombre: ").strip()
+        if not nombre:
+            print("❌ Error: Debes ingresar un nombre válido.")
+            return
+        
+        # Generar ID único
+        import hashlib
+        from datetime import datetime
+        unique_string = f"{nombre}_{datetime.now().isoformat()}"
+        user_hash = hashlib.md5(unique_string.encode()).hexdigest()[:8]
+        user_id = f"{nombre}_{user_hash}"
+        
+        print(f"\n✅ Usuario creado exitosamente!")
+        print(f"📝 Tu ID de usuario es: {user_id}")
+        print("⚠️  IMPORTANTE: Guarda este ID para futuras sesiones\n")
+        input("Presiona Enter para continuar...")
+        
+    elif opcion == "2":
+        # Usuario existente
+        user_id = input("\nIngresa tu ID de usuario: ").strip()
+        if not user_id:
+            print("❌ Error: Debes ingresar un ID de usuario válido.")
+            return
+    else:
+        print("❌ Opción inválida.")
         return
     
     print(f"\n✅ Sesión iniciada para usuario: {user_id}")
