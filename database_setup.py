@@ -19,11 +19,14 @@ def setup_database():
         )
     ''')
     
-    # Crear tabla prompt_rules
+    # Crear tabla prompt_rules con categorización de errores
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS prompt_rules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            rule_text TEXT NOT NULL
+            rule_text TEXT NOT NULL,
+            error_category TEXT DEFAULT 'general',
+            validation_score REAL DEFAULT 0.0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     

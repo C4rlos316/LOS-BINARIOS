@@ -93,16 +93,86 @@ def save_user_memory(user_id, chat_history_list, llm_instance):
     print("\n[Sistema: ✓ Memoria guardada exitosamente. Esta información se recordará en futuras conversaciones.]")
 
 
+def categorize_error(question, answer, llm_instance):
+    """
+    Categoriza el tipo de error en la respuesta.
+    Retorna: categoria y descripción.
+    """
+    categorization_prompt = f"""Analiza esta interacción fallida y categoriza el tipo de error.
+
+PREGUNTA: {question}
+RESPUESTA: {answer}
+
+CATEGORÍAS POSIBLES:
+- vago: Respuesta genérica sin datos específicos
+- incorrecto: Información errónea o desactualizada
+- incompleto: Falta información importante
+- fuera_contexto: No aborda la pregunta del usuario
+- general: Otro tipo de error
+
+Responde SOLO con el nombre de la categoría (una palabra)."""
+
+    try:
+        response = llm_instance.invoke([HumanMessage(content=categorization_prompt)])
+        category = response.content.strip().lower()
+        
+        # Validar categoría
+        valid_categories = ['vago', 'incorrecto', 'incompleto', 'fuera_contexto', 'general']
+        if category not in valid_categories:
+            category = 'general'
+        
+        return category
+    except:
+        return 'general'
+
+
+def validate_rule(rule_text, test_question, llm_instance):
+    """
+    Valida si una regla nueva realmente mejora las respuestas.
+    Retorna score de validación (0.0 - 1.0).
+    """
+    # Crear prompt con y sin la regla
+    base_prompt = "Eres un asistente de Kavak. Responde de forma útil."
+    improved_prompt = f"{base_prompt}\n\n{rule_text}"
+    
+    # Probar sin regla
+    response_without = llm_instance.invoke([
+        SystemMessage(content=base_prompt),
+        HumanMessage(content=test_question)
+    ])
+    
+    # Probar con regla
+    response_with = llm_instance.invoke([
+        SystemMessage(content=improved_prompt),
+        HumanMessage(content=test_question)
+    ])
+    
+    # Evaluar ambas respuestas
+    judge_prompt = f"""Compara estas dos respuestas a la pregunta: "{test_question}"
+
+RESPUESTA A (sin regla): {response_without.content[:200]}
+RESPUESTA B (con regla): {response_with.content[:200]}
+
+¿La Respuesta B es mejor que la Respuesta A?
+Responde SOLO: "si" o "no"."""
+    
+    try:
+        judgment = llm_instance.invoke([HumanMessage(content=judge_prompt)])
+        is_better = judgment.content.strip().lower()
+        
+        return 1.0 if 'si' in is_better or 'sí' in is_better else 0.0
+    except:
+        return 0.5  # Score neutral si falla
+
+
 def optimize_prompt_rule(chat_history_list, llm_instance):
     """
-    Agente Optimizador: Genera y guarda una nueva regla de prompt en prompt_rules.
-    Usa la instancia llm_instance ya configurada para evitar errores de proxy.
+    Agente Optimizador MEJORADO: Categoriza errores y valida reglas antes de guardar.
     """
     # Extraer la última pregunta y respuesta
     last_human_message = None
     last_ai_message = None
     
-    # Buscar desde el final hacia atrás
     for msg in reversed(chat_history_list):
         if isinstance(msg, AIMessage) and last_ai_message is None:
             last_ai_message = msg.content
@@ -116,38 +186,49 @@ def optimize_prompt_rule(chat_history_list, llm_instance):
         print("\n[Sistema: ⚠️  No se pudo extraer la conversación para optimizar.]")
         return
     
-    # Definir el prompt del optimizador
-    OPTIMIZER_PROMPT = f"""Eres un 'Optimizador de Prompts' experto. La siguiente respuesta del bot a la pregunta del usuario fue marcada como 'No Útil'.
+    # PASO 1: Categorizar el error
+    print("\n[Sistema: Analizando tipo de error...]")
+    error_category = categorize_error(last_human_message, last_ai_message, llm_instance)
+    print(f"[Sistema: Error categorizado como '{error_category}']")
+    
+    # PASO 2: Generar regla
+    OPTIMIZER_PROMPT = f"""Eres un 'Optimizador de Prompts' experto. La siguiente respuesta del bot fue marcada como 'No Útil' (tipo de error: {error_category}).
 
-Tu tarea es analizar el fallo y generar una 'REGLA:' corta y específica para el prompt del sistema que ayude a bots futuros a evitar este error.
-La regla debe ser accionable y clara.
+Tu tarea es generar una 'REGLA:' corta y específica para mejorar futuras respuestas.
 
-Ejemplo de Regla: 'REGLA: Si el usuario pregunta por garantía, siempre mencionar la garantía mecánica de 3 meses.'
+Ejemplo: 'REGLA: Si el usuario pregunta por garantía, siempre mencionar la garantía mecánica de 3 meses.'
 
 ---
-Pregunta del Usuario que falló: {last_human_message}
-Respuesta del Bot que falló: {last_ai_message}
+Pregunta del Usuario: {last_human_message}
+Respuesta del Bot (fallida): {last_ai_message}
+Tipo de error: {error_category}
 ---
 
 Genera la nueva REGLA:"""
     
-    # Llamar al LLM usando la instancia configurada
     response = llm_instance.invoke([HumanMessage(content=OPTIMIZER_PROMPT)])
     new_rule_text = response.content
     
-    # Guardar en la base de datos
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # PASO 3: Validar la regla
+    print("[Sistema: Validando efectividad de la regla...]")
+    validation_score = validate_rule(new_rule_text, last_human_message, llm_instance)
     
-    cursor.execute(
-        'INSERT INTO prompt_rules (rule_text) VALUES (?)',
-        (new_rule_text,)
-    )
-    
-    conn.commit()
-    conn.close()
-    
-    print("\n[Sistema: ✓ Nueva regla aprendida y guardada. El bot mejorará sus respuestas.]")
+    # PASO 4: Guardar solo si la validación es positiva
+    if validation_score >= 0.5:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            'INSERT INTO prompt_rules (rule_text, error_category, validation_score) VALUES (?, ?, ?)',
+            (new_rule_text, error_category, validation_score)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"\n[Sistema: ✓ Regla validada (score: {validation_score:.1f}) y guardada. Categoría: {error_category}]")
+    else:
+        print(f"\n[Sistema: ✗ Regla descartada (score: {validation_score:.1f}). No mejora las respuestas.]")
 
 
 def calculate_metrics(chat_history):
@@ -214,6 +295,123 @@ def calculate_metrics(chat_history):
     }
 
 
+def auto_learn_from_conversation(chat_history, user_id, llm_instance):
+    """
+    Analiza automáticamente la conversación y aprende patrones exitosos.
+    Se ejecuta al finalizar cada conversación SIN intervención del usuario.
+    """
+    # Extraer mensajes de usuario y bot
+    interactions = []
+    for i in range(len(chat_history)):
+        if isinstance(chat_history[i], HumanMessage):
+            if i + 1 < len(chat_history) and isinstance(chat_history[i+1], AIMessage):
+                interactions.append({
+                    'question': chat_history[i].content,
+                    'answer': chat_history[i+1].content
+                })
+    
+    if not interactions:
+        return
+    
+    # Analizar qué respuestas fueron específicas (aprendizaje automático)
+    keywords_especificos = [
+        '3 meses', '3,000 km', '7 días', '$', 'MXN', 'pesos',
+        '12.9%', '24.9%', '10%', 'enganche', 'tasa',
+        'Versa', 'Jetta', 'Corolla', 'Civic', 'Mazda',
+        '240 puntos', 'inspección', 'Hub', 'Kavak',
+        '800-KAVAK', 'SPEI', '24-48 horas', '5 minutos'
+    ]
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    learned_something = False
+    
+    for interaction in interactions:
+        keyword_count = sum(1 for kw in keywords_especificos if kw.lower() in interaction['answer'].lower())
+        
+        # Si la respuesta fue específica (>=3 keywords), aprender de ella
+        if keyword_count >= 3:
+            # Generar regla automáticamente usando el LLM
+            learning_prompt = f"""Analiza esta interacción exitosa y genera UNA regla corta y específica para mejorar futuras respuestas similares.
+
+Pregunta del usuario: {interaction['question']}
+Respuesta exitosa del bot: {interaction['answer'][:200]}...
+
+Genera solo la REGLA en formato: 'REGLA: [regla específica]'
+Ejemplo: 'REGLA: Si preguntan por garantías, siempre mencionar 3 meses/3,000 km y 7 días de satisfacción.'"""
+            
+            try:
+                response = llm_instance.invoke([HumanMessage(content=learning_prompt)])
+                new_rule = response.content.strip()
+                
+                # Verificar que no sea una regla duplicada
+                cursor.execute('SELECT COUNT(*) FROM prompt_rules WHERE rule_text = ?', (new_rule,))
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute('INSERT INTO prompt_rules (rule_text) VALUES (?)', (new_rule,))
+                    learned_something = True
+            except:
+                pass  # Si falla, continuar sin romper el flujo
+    
+    # Guardar memoria del usuario automáticamente
+    if interactions:
+        memory_prompt = f"Resume en UNA frase el interés principal del usuario basado en estas preguntas: {', '.join([i['question'] for i in interactions[:3]])}"
+        try:
+            response = llm_instance.invoke([HumanMessage(content=memory_prompt)])
+            summary = response.content.strip()
+            cursor.execute('INSERT INTO user_memory (user_id, context) VALUES (?, ?)', (user_id, summary))
+        except:
+            pass
+    
+    conn.commit()
+    conn.close()
+    
+    if learned_something:
+        print("\n[Sistema: El bot aprendió automáticamente de esta conversación]")
+
+
+def get_system_evolution_metrics():
+    """
+    Calcula métricas de evolución del sistema a lo largo del tiempo.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Contar reglas aprendidas
+    cursor.execute('SELECT COUNT(*) FROM prompt_rules')
+    total_rules = cursor.fetchone()[0]
+    
+    # Contar memorias de usuarios
+    cursor.execute('SELECT COUNT(DISTINCT user_id) FROM user_memory')
+    total_users = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM user_memory')
+    total_memories = cursor.fetchone()[0]
+    
+    # Análisis de errores por categoría
+    cursor.execute('''
+        SELECT error_category, COUNT(*) as count 
+        FROM prompt_rules 
+        WHERE error_category IS NOT NULL
+        GROUP BY error_category
+    ''')
+    error_distribution = dict(cursor.fetchall())
+    
+    # Score promedio de validación
+    cursor.execute('SELECT AVG(validation_score) FROM prompt_rules WHERE validation_score > 0')
+    avg_validation = cursor.fetchone()[0] or 0.0
+    
+    conn.close()
+    
+    return {
+        'total_rules': total_rules,
+        'total_users': total_users,
+        'total_memories': total_memories,
+        'error_distribution': error_distribution,
+        'avg_validation_score': avg_validation
+    }
+
+
 def display_metrics(metrics):
     """
     Muestra las métricas de forma visual al final de la conversación.
@@ -269,6 +467,51 @@ def display_metrics(metrics):
         print("   ⚠️  Las respuestas podrían ser más específicas")
     else:
         print("   ❌ Las respuestas carecen de datos concretos")
+    
+    # MÉTRICA 4: EVOLUCIÓN DEL SISTEMA (Nueva métrica de aprendizaje global)
+    evolution = get_system_evolution_metrics()
+    print("\n" + "─"*70)
+    print("4️⃣  EVOLUCIÓN DEL SISTEMA (Aprendizaje Global)")
+    print("─"*70)
+    print(f"\n   Reglas aprendidas de todos los usuarios: {evolution['total_rules']}")
+    print(f"   Usuarios que han contribuido: {evolution['total_users']}")
+    print(f"   Memorias acumuladas: {evolution['total_memories']}")
+    
+    # Análisis de errores por categoría
+    if evolution['error_distribution']:
+        print(f"\n   Distribución de Errores Categorizados:")
+        for category, count in evolution['error_distribution'].items():
+            print(f"      - {category}: {count} reglas")
+    
+    # Score de validación promedio
+    if evolution['avg_validation_score'] > 0:
+        print(f"\n   Score Promedio de Validación: {evolution['avg_validation_score']:.2f}/1.0")
+        if evolution['avg_validation_score'] >= 0.8:
+            print("      ✓ Las reglas generadas son altamente efectivas")
+        elif evolution['avg_validation_score'] >= 0.5:
+            print("      ✓ Las reglas generadas son moderadamente efectivas")
+        else:
+            print("      ⚠️ Las reglas necesitan mejorar su efectividad")
+    
+    # Calcular nivel de madurez del sistema
+    maturity_score = min(100, (evolution['total_rules'] * 10) + (evolution['total_memories'] * 2))
+    
+    print(f"\n   Nivel de Madurez del Sistema: {maturity_score:.0f}/100")
+    
+    # Barra de madurez
+    bar_length = 30
+    filled = int((maturity_score / 100) * bar_length)
+    bar = "#" * filled + "-" * (bar_length - filled)
+    print(f"   [{bar}] {maturity_score:.0f}%")
+    
+    if maturity_score >= 80:
+        print("   >>> SISTEMA MADURO - El bot ha aprendido mucho de los usuarios")
+    elif maturity_score >= 50:
+        print("   >>> SISTEMA EN CRECIMIENTO - Aprendiendo activamente")
+    elif maturity_score >= 20:
+        print("   >>> SISTEMA INICIAL - Comenzando a aprender")
+    else:
+        print("   >>> SISTEMA NUEVO - Primeras interacciones")
     
     print("\n" + "="*70)
     print("Fin del Reporte de Métricas")
@@ -472,12 +715,17 @@ def main():
         
         # Verificar comando de salida
         if user_input.lower() == 'salir':
-            # Calcular y mostrar métricas antes de salir
-            if len(chat_history) > 1:  # Si hubo al menos una interacción
+            # Aprendizaje automático de la conversación
+            if len(chat_history) > 1:
                 print("\n" + "="*70)
-                print("Generando reporte de métricas de tu conversación...")
+                print("Analizando conversación y aprendiendo automáticamente...")
                 print("="*70)
                 
+                # APRENDIZAJE AUTOMÁTICO (sin intervención del usuario)
+                auto_learn_from_conversation(chat_history, user_id, llm)
+                
+                # Calcular y mostrar métricas
+                print("\nGenerando reporte de métricas...\n")
                 metrics = calculate_metrics(chat_history)
                 display_metrics(metrics)
             
@@ -506,8 +754,8 @@ def main():
             # Añadir respuesta del bot al historial para mantener contexto
             chat_history.append(AIMessage(content=ai_response_content))
             
-            # Sistema de feedback
-            print("\n¿Esta respuesta fue útil? (si / no / Enter para continuar)")
+            # Sistema de feedback OPCIONAL (el aprendizaje real es automático al salir)
+            print("\n¿Quieres dar feedback? (si/no para forzar aprendizaje, Enter para continuar)")
             feedback = input("Tu feedback: ").strip().lower()
             
             if feedback == 'si' or feedback == 's':
@@ -521,9 +769,9 @@ def main():
                 chat_history[0] = SystemMessage(content=system_prompt)
                 print("[Sistema: ✓ Asistente mejorado. Continuemos...]")
             elif feedback == '' or feedback == 'siguiente':
-                pass  # Continuar sin hacer nada
+                pass  # Continuar - el aprendizaje real ocurre automáticamente al salir
             else:
-                print("[Sistema: Feedback no reconocido, continuando...]")
+                pass  # Continuar
             
         except Exception as e:
             print(f"\n❌ Error al comunicarse con la IA: {str(e)}")
