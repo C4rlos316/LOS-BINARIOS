@@ -162,11 +162,11 @@ def main():
     
     # SISTEMA DE LOGIN
     if st.session_state.user_id is None:
-        # Mostrar pantalla de login
-        user_id = render_login_screen()
+        # Mostrar pantalla de login (pasar db_manager para validación)
+        user_id = render_login_screen(st.session_state.db_manager)
         
         if user_id:
-            # Usuario se identificó
+            # Usuario se identificó correctamente
             st.session_state.user_id = user_id
             
             # Inicializar chat para este usuario

@@ -43,12 +43,22 @@ class DatabaseManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # Crear tabla de usuarios
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         # Crear tabla user_memory
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_memory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
-                context TEXT NOT NULL
+                context TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         ''')
         
@@ -65,6 +75,79 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+    
+    # ==================== USUARIOS ====================
+    
+    def create_user(self, user_id: str, username: str) -> bool:
+        """
+        Crea un nuevo usuario en la base de datos.
+        
+        Args:
+            user_id: ID único del usuario
+            username: Nombre del usuario
+        
+        Returns:
+            bool: True si se creó exitosamente, False si ya existe
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                'INSERT INTO users (user_id, username) VALUES (?, ?)',
+                (user_id, username)
+            )
+            
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.IntegrityError:
+            # Usuario ya existe
+            return False
+    
+    def user_exists(self, user_id: str) -> bool:
+        """
+        Verifica si un usuario existe en la base de datos.
+        
+        Args:
+            user_id: ID del usuario a verificar
+        
+        Returns:
+            bool: True si existe, False si no
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            'SELECT COUNT(*) FROM users WHERE user_id = ?',
+            (user_id,)
+        )
+        count = cursor.fetchone()[0]
+        
+        conn.close()
+        return count > 0
+    
+    def get_username(self, user_id: str) -> Optional[str]:
+        """
+        Obtiene el nombre de usuario.
+        
+        Args:
+            user_id: ID del usuario
+        
+        Returns:
+            str: Nombre del usuario o None si no existe
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            'SELECT username FROM users WHERE user_id = ?',
+            (user_id,)
+        )
+        result = cursor.fetchone()
+        
+        conn.close()
+        return result[0] if result else None
     
     # ==================== REGLAS ====================
     
@@ -206,8 +289,8 @@ class DatabaseManager:
         cursor.execute('SELECT COUNT(*) FROM prompt_rules')
         total_rules = cursor.fetchone()[0]
         
-        # Contar usuarios únicos
-        cursor.execute('SELECT COUNT(DISTINCT user_id) FROM user_memory')
+        # Contar usuarios registrados
+        cursor.execute('SELECT COUNT(*) FROM users')
         total_users = cursor.fetchone()[0]
         
         # Contar memorias
@@ -281,10 +364,12 @@ class DatabaseManager:
         # Borrar todo
         cursor.execute('DELETE FROM prompt_rules')
         cursor.execute('DELETE FROM user_memory')
+        cursor.execute('DELETE FROM users')
         
         # Resetear autoincrement
         cursor.execute('DELETE FROM sqlite_sequence WHERE name="prompt_rules"')
         cursor.execute('DELETE FROM sqlite_sequence WHERE name="user_memory"')
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="users"')
         
         conn.commit()
         conn.close()

@@ -23,9 +23,12 @@ def generate_user_id(username: str) -> str:
     return f"{username}_{user_hash}"
 
 
-def render_login_screen():
+def render_login_screen(db_manager):
     """
     Renderiza la pantalla de login/registro.
+    
+    Args:
+        db_manager: Instancia de DatabaseManager para validar usuarios
     
     Returns:
         str: user_id si el usuario se autenticó, None en caso contrario
@@ -69,10 +72,17 @@ def render_login_screen():
                 
                 if login_submit:
                     if existing_user_id and existing_user_id.strip():
-                        # Guardar en session_state temporal
-                        st.session_state.temp_user_id = existing_user_id.strip()
-                        st.session_state.login_success = True
-                        st.rerun()
+                        user_id = existing_user_id.strip()
+                        
+                        # VALIDAR QUE EL USUARIO EXISTA EN LA BD
+                        if db_manager.user_exists(user_id):
+                            # Usuario existe, permitir login
+                            st.session_state.temp_user_id = user_id
+                            st.session_state.login_success = True
+                            st.rerun()
+                        else:
+                            # Usuario NO existe
+                            st.error("❌ Este usuario no existe. Por favor crea una cuenta primero.")
                     else:
                         st.error("⚠️ Por favor ingresa tu ID de usuario")
         
@@ -99,10 +109,18 @@ def render_login_screen():
                     if register_submit:
                         if new_username and new_username.strip():
                             # Generar ID único
-                            user_id = generate_user_id(new_username.strip())
-                            st.session_state.new_user_id = user_id
-                            st.session_state.new_user_created = True
-                            st.rerun()
+                            username = new_username.strip()
+                            user_id = generate_user_id(username)
+                            
+                            # CREAR USUARIO EN LA BASE DE DATOS
+                            if db_manager.create_user(user_id, username):
+                                # Usuario creado exitosamente
+                                st.session_state.new_user_id = user_id
+                                st.session_state.new_user_created = True
+                                st.rerun()
+                            else:
+                                # Error al crear (muy raro, pero por si acaso)
+                                st.error("❌ Error al crear usuario. Intenta con otro nombre.")
                         else:
                             st.error("⚠️ Por favor ingresa tu nombre")
             else:
@@ -114,6 +132,7 @@ def render_login_screen():
                 col_a, col_b = st.columns(2)
                 with col_a:
                     if st.button("✅ Continuar", key="continue_new", use_container_width=True):
+                        # Usuario ya fue creado en BD, solo hacer login
                         st.session_state.temp_user_id = st.session_state.new_user_id
                         st.session_state.login_success = True
                         st.session_state.new_user_created = False
