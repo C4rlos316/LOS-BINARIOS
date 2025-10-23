@@ -232,22 +232,24 @@ def main():
     # Input del usuario (siempre al final)
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns([5, 1])
-    
-    with col1:
-        user_input = st.text_input(
-            "Escribe tu pregunta aquí...",
-            key="user_input",
-            placeholder="Ej: ¿Qué garantías tienen los autos?",
-            label_visibility="collapsed"
-        )
-    
-    with col2:
-        send_button = st.button("Enviar 🚀", use_container_width=True)
+    # Usar form para permitir Enter
+    with st.form(key="chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([5, 1])
+        
+        with col1:
+            user_input = st.text_input(
+                "Escribe tu pregunta aquí...",
+                key="user_input_field",
+                placeholder="Ej: ¿Qué garantías tienen los autos? (Presiona Enter para enviar)",
+                label_visibility="collapsed"
+            )
+        
+        with col2:
+            send_button = st.form_submit_button("Enviar 🚀", use_container_width=True)
     
     # Procesar input
-    if send_button and user_input:
-        handle_user_input(user_input)
+    if send_button and user_input and user_input.strip():
+        handle_user_input(user_input.strip())
         st.rerun()
     
     # Botón para limpiar conversación

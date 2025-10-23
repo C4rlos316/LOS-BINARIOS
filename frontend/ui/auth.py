@@ -58,45 +58,73 @@ def render_login_screen():
             st.markdown("### Usuarios Existentes")
             st.markdown("Ingresa tu ID de usuario para continuar tu conversación anterior.")
             
-            existing_user_id = st.text_input(
-                "ID de Usuario",
-                key="existing_user",
-                placeholder="Ej: juan_a1b2c3d4",
-                help="Tu ID único de usuario"
-            )
-            
-            if st.button("🚀 Continuar", key="login_btn", use_container_width=True):
-                if existing_user_id.strip():
-                    return existing_user_id.strip()
-                else:
-                    st.error("⚠️ Por favor ingresa tu ID de usuario")
+            with st.form(key="login_form"):
+                existing_user_id = st.text_input(
+                    "ID de Usuario",
+                    placeholder="Ej: juan_a1b2c3d4",
+                    help="Tu ID único de usuario"
+                )
+                
+                login_submit = st.form_submit_button("🚀 Continuar", use_container_width=True)
+                
+                if login_submit:
+                    if existing_user_id and existing_user_id.strip():
+                        # Guardar en session_state temporal
+                        st.session_state.temp_user_id = existing_user_id.strip()
+                        st.session_state.login_success = True
+                        st.rerun()
+                    else:
+                        st.error("⚠️ Por favor ingresa tu ID de usuario")
         
         with tab2:
             st.markdown("### Crear Nuevo Usuario")
             st.markdown("Ingresa tu nombre para crear un nuevo perfil.")
             
-            new_username = st.text_input(
-                "Tu Nombre",
-                key="new_user",
-                placeholder="Ej: Juan Pérez",
-                help="Nombre que usarás para identificarte"
-            )
+            # Inicializar estado para nuevo usuario
+            if 'new_user_created' not in st.session_state:
+                st.session_state.new_user_created = False
+                st.session_state.new_user_id = None
             
-            if st.button("✨ Crear Usuario", key="register_btn", use_container_width=True):
-                if new_username.strip():
-                    # Generar ID único
-                    user_id = generate_user_id(new_username.strip())
+            if not st.session_state.new_user_created:
+                # Formulario de creación
+                with st.form(key="register_form"):
+                    new_username = st.text_input(
+                        "Tu Nombre",
+                        placeholder="Ej: Juan Pérez",
+                        help="Nombre que usarás para identificarte"
+                    )
                     
-                    # Mostrar ID generado
-                    st.success(f"✅ Usuario creado exitosamente!")
-                    st.info(f"**Tu ID de usuario es:** `{user_id}`")
-                    st.warning("⚠️ **Importante:** Guarda este ID para futuras sesiones")
+                    register_submit = st.form_submit_button("✨ Crear Usuario", use_container_width=True)
                     
-                    # Botón para continuar
-                    if st.button("Continuar con este usuario", key="continue_new"):
-                        return user_id
-                else:
-                    st.error("⚠️ Por favor ingresa tu nombre")
+                    if register_submit:
+                        if new_username and new_username.strip():
+                            # Generar ID único
+                            user_id = generate_user_id(new_username.strip())
+                            st.session_state.new_user_id = user_id
+                            st.session_state.new_user_created = True
+                            st.rerun()
+                        else:
+                            st.error("⚠️ Por favor ingresa tu nombre")
+            else:
+                # Mostrar ID generado y botón para continuar
+                st.success(f"✅ Usuario creado exitosamente!")
+                st.info(f"**Tu ID de usuario es:** `{st.session_state.new_user_id}`")
+                st.warning("⚠️ **Importante:** Guarda este ID para futuras sesiones")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if st.button("✅ Continuar", key="continue_new", use_container_width=True):
+                        st.session_state.temp_user_id = st.session_state.new_user_id
+                        st.session_state.login_success = True
+                        st.session_state.new_user_created = False
+                        st.session_state.new_user_id = None
+                        st.rerun()
+                
+                with col_b:
+                    if st.button("🔄 Crear Otro", key="reset_new", use_container_width=True):
+                        st.session_state.new_user_created = False
+                        st.session_state.new_user_id = None
+                        st.rerun()
         
         # Información adicional
         st.markdown("---")
@@ -107,6 +135,13 @@ def render_login_screen():
             y personalice las respuestas según tu historial.
         </div>
         """, unsafe_allow_html=True)
+    
+    # Retornar user_id si el login fue exitoso
+    if st.session_state.get('login_success', False):
+        user_id = st.session_state.temp_user_id
+        st.session_state.login_success = False
+        st.session_state.temp_user_id = None
+        return user_id
     
     return None
 

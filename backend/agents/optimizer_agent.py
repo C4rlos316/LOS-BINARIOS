@@ -73,19 +73,38 @@ Responde SOLO con el nombre de la categoría (una palabra)."""
         Returns:
             str: Regla generada
         """
-        optimizer_prompt = f"""Eres un 'Optimizador de Prompts' experto. La siguiente respuesta del bot fue marcada como 'No Útil' (tipo de error: {error_category}).
+        optimizer_prompt = f"""Eres un 'Optimizador de Prompts' experto. El bot dio una respuesta que el usuario marcó como NO ÚTIL.
 
-Tu tarea es generar una 'REGLA:' corta y específica para mejorar futuras respuestas.
+CONTEXTO:
+- Pregunta: {question}
+- Respuesta fallida: {answer}
+- Tipo de error: {error_category}
 
-Ejemplo: 'REGLA: Si el usuario pregunta por garantía, siempre mencionar la garantía mecánica de 3 meses.'
+Tu tarea es generar UNA REGLA ESPECÍFICA que enseñe al bot EXACTAMENTE qué hacer en situaciones similares.
 
----
-Pregunta del Usuario: {question}
-Respuesta del Bot (fallida): {answer}
-Tipo de error: {error_category}
----
+TIPOS DE REGLAS SEGÚN ERROR:
 
-Genera la nueva REGLA:"""
+1. Si error es "vago" → Enseña qué preguntas hacer:
+   Ejemplo: "Cuando pregunten por autos, SIEMPRE preguntar: ¿Tipo de vehículo (sedán/SUV/hatchback)? ¿Marca preferida? ¿Presupuesto máximo? ¿Uso (ciudad/carretera/familiar)?"
+
+2. Si error es "incompleto" → Enseña qué datos dar:
+   Ejemplo: "Al hablar de garantías, SIEMPRE mencionar: duración (3 meses o 3,000 km), cobertura (motor, transmisión, sistema eléctrico), contacto (800-KAVAK-01)."
+
+3. Si error es "incorrecto" → Corrige la información:
+   Ejemplo: "Los precios de autos en Kavak van desde $120,000 hasta $800,000 MXN. NUNCA dar rangos fuera de estos límites sin verificar."
+
+4. Si error es "fuera_contexto" → Enseña a enfocarse:
+   Ejemplo: "Si preguntan por financiamiento, primero confirmar: ¿Ya encontraste un auto? ¿Conoces tu presupuesto? Luego explicar opciones."
+
+5. Si error es "general" → Enseña comportamiento general:
+   Ejemplo: "Cuando el usuario sea vago, hacer 3-4 preguntas específicas para entender mejor antes de dar información general."
+
+IMPORTANTE:
+- La regla debe ser ACCIONABLE (decir QUÉ hacer, no qué NO hacer)
+- Debe incluir DATOS ESPECÍFICOS cuando sea posible
+- Debe aplicar a situaciones similares, no solo a esta pregunta exacta
+
+Genera la REGLA (máximo 3 líneas):"""
         
         response = self.llm.invoke([HumanMessage(content=optimizer_prompt)])
         new_rule_text = response.content

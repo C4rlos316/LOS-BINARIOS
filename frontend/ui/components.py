@@ -93,13 +93,6 @@ def render_metrics_sidebar(stats: dict):
     
     st.sidebar.markdown(f"""
     <div class="metric-card">
-        <h3>👥 Usuarios Activos</h3>
-        <p>{stats.get('total_users', 0)}</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.sidebar.markdown(f"""
-    <div class="metric-card">
         <h3>💾 Memorias Guardadas</h3>
         <p>{stats.get('total_memories', 0)}</p>
     </div>
